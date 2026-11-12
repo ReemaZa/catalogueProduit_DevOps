@@ -10,6 +10,7 @@ from app.database import get_db
 from app.metrics import PRODUCTS_CREATED
 from app.models import Category, ProductCreate, ProductOut, ProductUpdate
 from app.utils import parse_object_id
+import re
 
 router = APIRouter(prefix="/products", tags=["products"])
 
@@ -32,14 +33,14 @@ async def create_product(payload: ProductCreate, db: AsyncIOMotorDatabase = Depe
     try:
         result = await db.products.insert_one(doc)
     except DuplicateKeyError:  # index unique sur `name` (cf. main.py)
-        raise HTTPException(status_code=409, detail="Un produit avec ce nom existe déjà")
+        raise HTTPException(status_code=409, detail="Un produit avec ce nom existe déjà") from None
     doc["_id"] = result.inserted_id
     PRODUCTS_CREATED.labels(category=payload.category.value).inc()
     return _to_out(doc)
 
 
 @router.get("", response_model=list[ProductOut])
-# la signature de ta fonction sert de contrat de validation automatique pour les paramètres d'URL (les query parameters).
+#La signature = contrat de validation automatique des paramètres d'URL (query parameters).
 async def list_products(
     category: Category | None = None,
     min_price_cents: int | None = Query(default=None, ge=0),
@@ -62,12 +63,11 @@ async def list_products(
         query["price_cents"] = price
     if in_stock is True:
         query["stock"] = {"$gt": 0}
-    if search is not  None:
-        query["name"] = {"$regex" : search, "$options": "i"}
     elif in_stock is False:
         query["stock"] = 0
-    print("this is the query query")
-    print(query)
+    if search is not None:
+         # re.escape : l'utilisateur cherche du TEXTE, pas une expression régulière (anti-ReDoS)
+         query["name"] = {"$regex": re.escape(search), "$options": "i"}
     cursor = db.products.find(query).sort("created_at", -1).skip(skip).limit(limit)
     return [_to_out(doc) async for doc in cursor]
 
@@ -95,12 +95,7 @@ async def product_stats(db: AsyncIOMotorDatabase = Depends(get_db)):
         }}
     ]
 
-    if not pipeline:
-        raise HTTPException(status_code=501, detail=" écris le pipeline !")
-
     result = await db.products.aggregate(pipeline).to_list(length=1)
-    print("***************resultat de stat ****************************")
-    print(result)
     return result[0] if result else {"by_category": [], "top_expensive": []}
 
 
@@ -136,7 +131,7 @@ async def update_product(
             return_document=ReturnDocument.AFTER,
         )
     except DuplicateKeyError:
-        raise HTTPException(status_code=409, detail="Un produit avec ce nom existe déjà")
+        raise HTTPException(status_code=409, detail="Un produit avec ce nom existe déjà") from None
     if doc is None:
         raise HTTPException(status_code=404, detail="Produit introuvable")
     return _to_out(doc)

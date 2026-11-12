@@ -47,7 +47,7 @@ async def checkout(payload: CheckoutRequest, db: AsyncIOMotorDatabase = Depends(
     decremented: list[tuple[ObjectId, int]] = []
     total_cents = 0
 
-    for oid, item in zip(ids, payload.items):
+    for oid, item in zip(ids, payload.items, strict = True):
         doc = await db.products.find_one_and_update(
             {"_id": oid, "active": True, "stock": {"$gte": item.quantity}},
             {"$inc": {"stock": -item.quantity}},
