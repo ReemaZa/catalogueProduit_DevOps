@@ -1,4 +1,5 @@
 """CRUD du catalogue produits + statistiques (exercice 1) + stock bas (exercice 2)."""
+import re
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -10,7 +11,6 @@ from app.database import get_db
 from app.metrics import PRODUCTS_CREATED
 from app.models import Category, ProductCreate, ProductOut, ProductUpdate
 from app.utils import parse_object_id
-import re
 
 router = APIRouter(prefix="/products", tags=["products"])
 
@@ -21,7 +21,8 @@ def _now() -> datetime:
 
 def _to_out(doc: dict) -> ProductOut:
     """Mongo stocke `_id` (ObjectId) ; l'API expose `id` (str)."""
-    data = {**doc, "id": str(doc["_id"])} #{**doc} : C'est la syntaxe de "décomposition" (dictionary unpacking en Python). Ça crée un nouveau dictionnaire en copiant tous les champs du document MongoDB d'origine.
+    data = {**doc, "id": str(doc["_id"])} #{**doc} : C'est la syntaxe de "décomposition" (dictionary unpacking en Python). 
+    #Ça crée un nouveau dictionnaire en copiant tous les champs du document MongoDB d'origine.
     data.pop("_id")
     return ProductOut(**data)
 
