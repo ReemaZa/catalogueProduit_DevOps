@@ -1,0 +1,14 @@
+# Doit être REJETÉ : pas de tag = latest implicite
+apiVersion: v1
+kind: Pod
+metadata:
+  name: bad-no-tag
+  namespace: catalog
+  labels: {owner: rima}
+spec:
+  containers:
+    - name: web
+      image: nginx
+      resources:
+        requests: {cpu: 50m, memory: 64Mi}
+        limits: {cpu: 100m, memory: 128Mi}

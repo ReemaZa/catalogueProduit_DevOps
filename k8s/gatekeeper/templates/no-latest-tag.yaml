@@ -1,0 +1,39 @@
+apiVersion: templates.gatekeeper.sh/v1
+kind: ConstraintTemplate
+metadata:
+  name: k8snolatesttag
+  annotations:
+    description: "Interdit le tag :latest (ou l'absence de tag) dans les images de conteneurs."
+spec:
+  crd:
+    spec:
+      names:
+        kind: K8sNoLatestTag
+  targets:
+    - target: admission.k8s.gatekeeper.sh
+      rego: |
+        package k8snolatesttag
+
+        # On accepte Pod ET Deployment (les conteneurs ne sont pas au même endroit)
+        containers[c] { c := input.review.object.spec.containers[_] }
+        containers[c] { c := input.review.object.spec.initContainers[_] }
+        containers[c] { c := input.review.object.spec.template.spec.containers[_] }
+        containers[c] { c := input.review.object.spec.template.spec.initContainers[_] }
+
+        # "nginx:latest"
+        is_latest(image) { endswith(image, ":latest") }
+
+        # "nginx" (sans tag = latest implicite). On regarde le DERNIER segment du chemin
+        # pour ne pas confondre avec un port de registre ("localhost:5000/app").
+        # Une image épinglée par digest ("app@sha256:...") est acceptée.
+        is_latest(image) {
+          not contains(image, "@")
+          parts := split(image, "/")
+          not contains(parts[count(parts) - 1], ":")
+        }
+
+        violation[{"msg": msg}] {
+          c := containers[_]
+          is_latest(c.image)
+          msg := sprintf("le conteneur <%v> utilise l'image <%v> : le tag 'latest' (ou l'absence de tag) est interdit", [c.name, c.image])
+        }

@@ -1,0 +1,13 @@
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sNoLatestTag
+metadata:
+  name: interdire-latest
+spec:
+  enforcementAction: deny        # essayer "dryrun" pour observer sans bloquer
+  match:
+    kinds:
+      - apiGroups: [""]
+        kinds: ["Pod"]
+      - apiGroups: ["apps"]
+        kinds: ["Deployment"]
+    namespaces: ["catalog"]      # on ne touche PAS à kube-system, argocd, etc.

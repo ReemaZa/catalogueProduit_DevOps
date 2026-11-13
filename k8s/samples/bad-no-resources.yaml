@@ -1,0 +1,11 @@
+# Doit être REJETÉ : ni requests ni limits
+apiVersion: v1
+kind: Pod
+metadata:
+  name: bad-no-resources
+  namespace: catalog
+  labels: {owner: rima}
+spec:
+  containers:
+    - name: web
+      image: nginx:1.27-alpine

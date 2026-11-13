@@ -1,0 +1,111 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_NAME: catalogue-produit
+
+jobs:
+  # 1) Lint + tests (cloud GitHub) -------------------------------------------
+  test:
+    name: Lint & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements-dev.txt
+      - name: Lint (ruff)
+        run: ruff check .
+      - name: Tests + couverture (échoue si < 85 %)
+        run: pytest
+
+  # 2) SonarQube + Quality Gate (runner AUTO-HÉBERGÉ : voit le SonarQube local) --
+  quality:
+    name: SonarQube & Quality Gate
+    needs: test
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0     # historique complet : nécessaire pour calculer le "nouveau code"
+      - name: Tests pour produire coverage.xml
+        run: |
+          python3 -m venv .venv
+          . .venv/bin/activate
+          pip install -q -r requirements-dev.txt
+          pytest
+      - name: SonarQube scan (attend la Quality Gate)
+        uses: SonarSource/sonarqube-scan-action@v7
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}   # ex. http://localhost:9000
+        with:
+          args: >
+            -Dsonar.qualitygate.wait=true
+            -Dsonar.qualitygate.timeout=300
+
+  # 3) Build + Trivy + Push (cloud GitHub) -----------------------------------
+  build:
+    name: Build, Trivy & Push
+    needs: [test, quality]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Calcul du nom d'image (GHCR exige des minuscules)
+        id: meta
+        run: |
+          OWNER="${GITHUB_REPOSITORY_OWNER,,}"
+          echo "image=ghcr.io/${OWNER}/${IMAGE_NAME}" >> "$GITHUB_OUTPUT"
+          echo "tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+      - name: Build de l'image
+        run: docker build -t "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}" .
+      - name: Trivy (CRITICAL = échec du pipeline)
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            ghcr.io/aquasecurity/trivy:latest image \
+            --severity CRITICAL --exit-code 1 --ignore-unfixed \
+            "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}"
+      - name: Login GHCR
+        if: github.ref == 'refs/heads/main'
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Push
+        if: github.ref == 'refs/heads/main'
+        run: docker push "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}"
+
+  # 4) GitOps : la CI écrit le nouveau tag dans Git, ArgoCD déploie ------------
+  update-manifest:
+    name: Mise à jour du tag dans Git (GitOps)
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Met à jour values.yaml
+        run: |
+          OWNER="${GITHUB_REPOSITORY_OWNER,,}"
+          sed -i "s|^  repository:.*|  repository: ghcr.io/${OWNER}/${IMAGE_NAME}|" helm/catalog/values.yaml
+          sed -i "s|^  tag:.*|  tag: \"${{ needs.build.outputs.tag }}\"|" helm/catalog/values.yaml
+      - name: Commit & push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add helm/catalog/values.yaml
+          git diff --cached --quiet || git commit -m "chore(gitops): image tag ${{ needs.build.outputs.tag }} [skip ci]"
+          git push

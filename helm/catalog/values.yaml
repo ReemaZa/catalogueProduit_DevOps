@@ -1,0 +1,34 @@
+# Le tag de l'image est mis à jour AUTOMATIQUEMENT par la CI (job update-manifest).
+# Ne JAMAIS mettre "latest" : Gatekeeper rejetterait le déploiement.
+image:
+  repository: ghcr.io/CHANGE_ME_OWNER/catalogue-produit
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+owner: rima            # label exigé par la contrainte "owner" (exercice phase 4)
+
+flakyErrorRate: "0.3"  # probabilité d'erreur 500 de /flaky
+
+service:
+  type: NodePort
+  port: 80
+  nodePort: 30080      # mappé sur http://localhost:8080 par kind-config.yaml
+
+resources:
+  requests: {cpu: 50m, memory: 128Mi}
+  limits: {cpu: 250m, memory: 256Mi}
+
+mongo:
+  enabled: true
+  image: mongo:7
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {cpu: 500m, memory: 512Mi}
+
+# Annotations lues par Prometheus (phase 6)
+prometheus:
+  scrape: true
+  path: /metrics
+  port: 8000

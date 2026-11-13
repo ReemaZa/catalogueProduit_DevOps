@@ -1,0 +1,23 @@
+# kubectl apply -f argocd/application.yaml   (après avoir remplacé OWNER)
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: catalog
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/OWNER/catalogueProduit_DevOps.git
+    targetRevision: main
+    path: helm/catalog
+    helm:
+      valueFiles: [values.yaml]
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: catalog
+  syncPolicy:
+    automated:
+      prune: true      # supprime ce qui n'est plus dans Git
+      selfHeal: true   # annule toute modification manuelle du cluster
+    syncOptions:
+      - CreateNamespace=true

@@ -1,0 +1,20 @@
+# Rejeté seulement APRÈS l'exercice (contrainte "owner" appliquée)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bad-no-owner
+  namespace: catalog
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: bad-no-owner}
+  template:
+    metadata:
+      labels: {app: bad-no-owner}
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27-alpine
+          resources:
+            requests: {cpu: 50m, memory: 64Mi}
+            limits: {cpu: 100m, memory: 128Mi}
