@@ -1,4 +1,4 @@
-# kubectl apply -f argocd/application.yaml   (après avoir remplacé OWNER)
+# kubectl apply -f argocd/application.yaml   (après avoir remplacé ReemaZa)
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -7,7 +7,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/OWNER/catalogueProduit_DevOps.git
+    repoURL: https://github.com/ReemaZa/catalogueProduit_DevOps.git
     targetRevision: main
     path: helm/catalog
     helm:
