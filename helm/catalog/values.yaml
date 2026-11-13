@@ -1,8 +1,8 @@
 # Le tag de l'image est mis à jour AUTOMATIQUEMENT par la CI (job update-manifest).
 # Ne JAMAIS mettre "latest" : Gatekeeper rejetterait le déploiement.
 image:
-  repository: ghcr.io/CHANGE_ME_OWNER/catalogue-produit
-  tag: "0.1.0"
+  repository: ghcr.io/reemaza/catalogue-produit
+  tag: "2faff65"
   pullPolicy: IfNotPresent
 
 replicaCount: 1
