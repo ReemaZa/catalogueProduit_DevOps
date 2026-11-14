@@ -1,4 +1,5 @@
 """Métriques Prometheus (RED : Rate, Errors, Duration) + métriques métier."""
+from opentelemetry import metrics
 from prometheus_client import Counter, Histogram
 
 REQUESTS = Counter(
@@ -25,4 +26,9 @@ PRODUCTS_CREATED = Counter(
 CHECKOUT_REVENUE = Counter(
     "checkout_revenue_cents_total",
     "Chiffre d'affaires cumulé des commandes validées (en centimes)",
+)
+
+# Métrique OpenTelemetry (SDK OTel -> OTLP -> Prometheus) : articles vendus
+CHECKOUT_ITEMS = metrics.get_meter("catalog-api").create_counter(
+    "catalog.checkout.items", unit="{item}", description="Articles vendus via /checkout"
 )

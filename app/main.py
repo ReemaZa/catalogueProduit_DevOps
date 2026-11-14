@@ -9,7 +9,9 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from app.database import close_client, get_db
 from app.metrics import LATENCY, REQUESTS
 from app.routers import ops, products
+from app.telemetry import setup_logging, setup_tracing
 
+setup_logging()
 logger = logging.getLogger("catalog-api")
 
 
@@ -29,6 +31,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Catalog API", version="0.1.0", lifespan=lifespan)
+setup_tracing(app)
 
 
 @app.middleware("http")
@@ -48,6 +51,10 @@ async def metrics_middleware(request: Request, call_next):
             duration = time.perf_counter() - start
             REQUESTS.labels(request.method, path, str(status_code)).inc()
             LATENCY.labels(request.method, path).observe(duration)
+            if path not in ("/health", "/ready"):  # évite de noyer Loki avec les probes
+                logger.info(
+                    "%s %s -> %s (%.0f ms)", request.method, path, status_code, duration * 1000
+                )
 
 
 @app.get("/metrics", include_in_schema=False)

@@ -1,0 +1,86 @@
+# Règles SLO : recording rules (SLI sur plusieurs fenêtres) + alertes multi-window multi-burn-rate.
+# SLO disponibilité = 99,5 %  =>  budget d'erreur = 0,5 % = 0,005
+#   Critical : burn rate 14,4 sur 1 h (et 5 min)  => 14,4 x 1h / 720h = 2 % du budget mensuel
+#   Warning  : burn rate 6    sur 6 h (et 30 min) => 6    x 6h / 720h = 5 % du budget mensuel
+# SLI "bon" = status < 500, sur le trafic utilisateur (on exclut /health, /ready, /metrics).
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: catalog-slo
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: catalog-sli-recording
+      interval: 30s
+      rules:
+        # --- Ratio d'erreurs (requêtes 5xx / requêtes totales) par fenêtre ---
+        - record: catalog:sli_error_ratio:rate5m
+          expr: |
+            (sum(rate(http_requests_total{namespace="catalog",path!~"/health|/ready",status=~"5.."}[5m])) or vector(0))
+            / sum(rate(http_requests_total{namespace="catalog",path!~"/health|/ready"}[5m]))
+        - record: catalog:sli_error_ratio:rate30m
+          expr: |
+            (sum(rate(http_requests_total{namespace="catalog",path!~"/health|/ready",status=~"5.."}[30m])) or vector(0))
+            / sum(rate(http_requests_total{namespace="catalog",path!~"/health|/ready"}[30m]))
+        - record: catalog:sli_error_ratio:rate1h
+          expr: |
+            (sum(rate(http_requests_total{namespace="catalog",path!~"/health|/ready",status=~"5.."}[1h])) or vector(0))
+            / sum(rate(http_requests_total{namespace="catalog",path!~"/health|/ready"}[1h]))
+        - record: catalog:sli_error_ratio:rate6h
+          expr: |
+            (sum(rate(http_requests_total{namespace="catalog",path!~"/health|/ready",status=~"5.."}[6h])) or vector(0))
+            / sum(rate(http_requests_total{namespace="catalog",path!~"/health|/ready"}[6h]))
+        # Fenêtre SLO complète (30 jours glissants ; en TP, Prometheus n'a que quelques heures de données)
+        - record: catalog:sli_error_ratio:rate30d
+          expr: |
+            (sum(increase(http_requests_total{namespace="catalog",path!~"/health|/ready",status=~"5.."}[30d])) or vector(0))
+            / sum(increase(http_requests_total{namespace="catalog",path!~"/health|/ready"}[30d]))
+        # --- Error budget restant (1 = 100 % du budget intact, 0 = épuisé, <0 = SLO violé) ---
+        - record: catalog:error_budget_remaining:ratio
+          expr: 1 - (catalog:sli_error_ratio:rate30d / 0.005)
+        # --- Burn rate = vitesse de consommation du budget (1 = on consomme pile le budget sur 30 j) ---
+        - record: catalog:burn_rate:1h
+          expr: catalog:sli_error_ratio:rate1h / 0.005
+        # --- SLI latence : part des requêtes < 200 ms (bucket le="0.2") ---
+        - record: catalog:sli_latency_under200ms:ratio5m
+          expr: |
+            sum(rate(http_request_duration_seconds_bucket{namespace="catalog",path!~"/health|/ready",le="0.2"}[5m]))
+            / sum(rate(http_request_duration_seconds_count{namespace="catalog",path!~"/health|/ready"}[5m]))
+
+    - name: catalog-slo-alerts
+      rules:
+        - alert: CatalogErrorBudgetBurnCritical
+          expr: |
+            catalog:sli_error_ratio:rate1h > (14.4 * 0.005)
+            and
+            catalog:sli_error_ratio:rate5m > (14.4 * 0.005)
+          for: 2m
+          labels:
+            severity: critical
+            slo: availability
+          annotations:
+            summary: "PAGE : 2 % du budget d'erreur consommé en 1 h (burn rate > 14,4)"
+            description: "Taux d'erreur 1h = {{ $value | humanizePercentage }}. Au rythme actuel, le budget mensuel est épuisé en ~2 jours."
+        - alert: CatalogErrorBudgetBurnWarning
+          expr: |
+            catalog:sli_error_ratio:rate6h > (6 * 0.005)
+            and
+            catalog:sli_error_ratio:rate30m > (6 * 0.005)
+          for: 2m
+          labels:
+            severity: warning
+            slo: availability
+          annotations:
+            summary: "Slack : 5 % du budget d'erreur consommé en 6 h (burn rate > 6)"
+            description: "Taux d'erreur 6h = {{ $value | humanizePercentage }}. Au rythme actuel, le budget mensuel est épuisé en ~5 jours."
+        - alert: CatalogLatencySLOBreach
+          expr: histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{namespace="catalog",path!~"/health|/ready"}[5m]))) > 0.2
+          for: 5m
+          labels:
+            severity: warning
+            slo: latency
+          annotations:
+            summary: "SLO latence violé : p95 > 200 ms depuis 5 min"
+            description: "p95 = {{ $value | humanizeDuration }}"

@@ -40,6 +40,14 @@ spec:
               value: catalog_db
             - name: FLAKY_ERROR_RATE
               value: {{ .Values.flakyErrorRate | quote }}
+            {{- if .Values.otel.enabled }}
+            - name: OTEL_SERVICE_NAME
+              value: catalog-api
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.otel.endpoint | quote }}
+            - name: OTEL_EXPORTER_OTLP_METRICS_ENDPOINT
+              value: {{ .Values.otel.metricsEndpoint | quote }}
+            {{- end }}
           livenessProbe:
             httpGet: {path: /health, port: http}
             initialDelaySeconds: 5

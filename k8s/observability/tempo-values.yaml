@@ -1,0 +1,8 @@
+# Tempo monolithique. Reçoit les traces OTLP/HTTP de l'app sur :4318 (service tempo.monitoring).
+tempo:
+  retention: 24h
+  resources:
+    requests: {cpu: 50m, memory: 200Mi}
+    limits: {memory: 512Mi}
+persistence:
+  enabled: false

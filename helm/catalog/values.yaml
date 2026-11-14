@@ -27,6 +27,12 @@ mongo:
     requests: {cpu: 100m, memory: 256Mi}
     limits: {cpu: 500m, memory: 512Mi}
 
+# Traces + métriques OpenTelemetry (phase 6)
+otel:
+  enabled: true
+  endpoint: http://tempo.monitoring.svc.cluster.local:4318
+  metricsEndpoint: http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090/api/v1/otlp/v1/metrics
+
 # Annotations lues par Prometheus (phase 6)
 prometheus:
   scrape: true

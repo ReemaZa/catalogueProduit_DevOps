@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
+from opentelemetry import trace
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
@@ -37,6 +38,7 @@ async def create_product(payload: ProductCreate, db: AsyncIOMotorDatabase = Depe
         raise HTTPException(status_code=409, detail="Un produit avec ce nom existe déjà") from None
     doc["_id"] = result.inserted_id
     PRODUCTS_CREATED.labels(category=payload.category.value).inc()
+    trace.get_current_span().set_attribute("product.category", payload.category.value)
     return _to_out(doc)
 
 

@@ -1,0 +1,126 @@
+# kube-prometheus-stack : Prometheus + Alertmanager + Grafana (+ operator, kube-state-metrics)
+# Allégé pour tenir en RAM sur Kind (WSL2).
+fullnameOverride: ""
+defaultRules:
+  create: false            # pas les centaines de règles génériques : on a nos règles SLO
+nodeExporter:
+  enabled: false           # inutile (et problématique) sur Kind/WSL2
+kubeEtcd: {enabled: false}
+kubeScheduler: {enabled: false}
+kubeControllerManager: {enabled: false}
+kubeProxy: {enabled: false}
+
+prometheus:
+  prometheusSpec:
+    retention: 3d
+    enableOTLPReceiver: true     # reçoit les métriques OTel (OTLP/HTTP) sur /api/v1/otlp/v1/metrics
+    # Prendre TOUTES les PrometheusRule / ServiceMonitor du cluster (pas seulement ceux du release)
+    ruleSelectorNilUsesHelmValues: false
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    resources:
+      requests: {cpu: 100m, memory: 400Mi}
+      limits: {memory: 900Mi}
+    # Scrape AUTOMATIQUE de tous les pods annotés prometheus.io/scrape=true (exigence du sujet)
+    additionalScrapeConfigs:
+      - job_name: kubernetes-pods
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: "true"
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - source_labels: [__meta_kubernetes_namespace]
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            target_label: pod
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+            target_label: app
+
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests: {cpu: 10m, memory: 32Mi}
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      receiver: "null"
+      group_by: [alertname, severity]
+      group_wait: 10s
+      group_interval: 1m
+      repeat_interval: 1h
+      routes:
+        - receiver: pager          # Critical -> "Page" (astreinte)
+          matchers: ['severity="critical"']
+        - receiver: slack          # Warning -> Slack
+          matchers: ['severity="warning"']
+    # Si la page (critical) est déjà levée pour un SLO, on n'envoie pas en plus le warning
+    inhibit_rules:
+      - source_matchers: ['severity="critical"']
+        target_matchers: ['severity="warning"']
+        equal: [slo]
+    receivers:
+      - name: "null"
+      - name: pager
+        webhook_configs:
+          # Faux endpoint : en vrai, PagerDuty/Opsgenie. L'alerte reste visible dans l'UI Alertmanager.
+          - url: http://localhost:5001/pager
+            send_resolved: true
+      - name: slack
+        slack_configs:
+          # Remplace par ton vrai webhook Slack (secret !). Placeholder syntaxiquement valide sinon.
+          - api_url: https://hooks.slack.com/services/T000/B000/REPLACE_ME
+            channel: "#alerts"
+            send_resolved: true
+            title: "[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }}"
+            text: "{{ .CommonAnnotations.summary }}"
+
+grafana:
+  adminPassword: admin
+  service:
+    type: NodePort
+    nodePort: 30090        # kind-config.yaml : 30090 -> http://localhost:9090
+  resources:
+    requests: {cpu: 50m, memory: 150Mi}
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      searchNamespace: ALL
+  # Sources de données + CORRÉLATION trace_id (Loki -> Tempo et Tempo -> Loki)
+  additionalDataSources:
+    - name: Loki
+      uid: loki
+      type: loki
+      access: proxy
+      url: http://loki.monitoring.svc.cluster.local:3100
+      jsonData:
+        derivedFields:
+          # Dans un log JSON, on repère "trace_id":"<32 hex>" et on crée un lien vers Tempo
+          - name: trace_id
+            matcherRegex: '"trace_id":\s*"(\w+)"'
+            url: '$${__value.raw}'
+            datasourceUid: tempo
+            urlDisplayLabel: "Voir la trace dans Tempo"
+    - name: Tempo
+      uid: tempo
+      type: tempo
+      access: proxy
+      url: http://tempo.monitoring.svc.cluster.local:3200
+      jsonData:
+        tracesToLogsV2:
+          datasourceUid: loki
+          spanStartTimeShift: "-5m"
+          spanEndTimeShift: "5m"
+          customQuery: true
+          query: '{namespace="catalog"} |= "$${__span.traceId}"'
