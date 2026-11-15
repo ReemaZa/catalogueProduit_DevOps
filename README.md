@@ -16,7 +16,6 @@ TP2 de **DevOps avancé** : une API REST de catalogue de produits (FastAPI + Mon
 8. [Observabilité](#8-observabilité)
 9. [SRE : SLO, error budget, alertes, k6](#9-sre--slo-error-budget-alertes-k6)
 10. [Résultats](#10-résultats)
-11. [Correspondance avec le barème](#11-correspondance-avec-le-barème)
 
 ## 1. Ce que fait le projet
 - Une **API de catalogue** (CRUD produits, filtres, statistiques) avec des endpoints techniques exigés par le sujet : `/metrics` (format Prometheus), `/checkout` (lent) et `/flaky` (erreurs intermittentes).
@@ -143,7 +142,10 @@ Grafana : http://localhost:9090 (utilisateur `admin`, mot de passe = `GRAFANA_AD
 2. **Build, Trivy & Push** : image Docker taguée avec le SHA court du commit, scan Trivy (**CRITICAL = échec**), push sur GHCR.
 3. **Mise à jour du tag (GitOps)** : la CI écrit le tag dans `helm/catalog/values.yaml` (commit `[skip ci]`) ; **ArgoCD** détecte le changement et synchronise le cluster.
 
-**Analyse SonarQube** : elle se lance **en local** (SonarQube tourne sur `localhost`), à la main : `sonar-scanner` avec un token personnel, jamais commité. Elle n'est volontairement plus dans la CI : un runner auto-hébergé sur un dépôt public permettrait à un tiers d'exécuter du code sur la machine de l'auteur. Les captures `rapport/screenshots/01`, `02` et `34` documentent les résultats obtenus lorsque la gate était dans la CI.
+> **Note : l'étape SonarQube a été retirée de la CI à partir du commit [`980aa0e`](https://github.com/ReemaZa/catalogueProduit_DevOps/commit/980aa0e).**
+> Jusqu'à ce commit, la pipeline comportait un 4e job « SonarQube & Quality Gate », exécuté sur un *runner auto-hébergé* (SonarQube tourne en local, sur `localhost`). Pour rendre le dépôt public, ce runner a été **révoqué et supprimé pour des raisons de sécurité** : sur un dépôt public, un runner auto-hébergé permettrait à un tiers d'exécuter du code sur la machine de l'auteur.
+> L'analyse reste réalisable **en local** (`scripts/sonar-setup.sh`, puis `sonar-scanner` avec un token personnel, jamais commité).
+> Les captures d'écran montrent le fonctionnement **avant** ce retrait : `01_phase3_sonargate_passed.png` (Quality Gate réussie, couverture 91,8 %), `02_sonar-gate-failed.png` (gate en échec), `06_job_ci_passed.png` (pipeline à 4 jobs dont SonarQube) et `34_sonar-tp2-gate-85.png` (configuration de la gate `TP2-Gate`).
 
 Aucun secret applicatif n'est nécessaire à la CI : le push d'image utilise le `GITHUB_TOKEN` avec les permissions minimales, les actions sont épinglées par SHA et Dependabot les tient à jour.
 
@@ -190,15 +192,3 @@ Incident simulé (`FLAKY_SHARE=0.4`, 14 novembre 2026) :
 
 ![Alertes FIRING dans Prometheus](rapport/screenshots/28%20%20Test%20de%20charge%20k6%20run%20b%20_%20capture%202.png)
 ![Alerte critique reçue dans Alertmanager](rapport/screenshots/29%20%20Test%20de%20charge%20k6%20run%20b%20_%20capture%203.png)
-
-
-## 11. Correspondance avec le barème
-| Critère (pondération) | Où le trouver |
-|---|---|
-| Code & tests unitaires (15 %) | `app/`, `tests/`, `coverage.xml` (93,9 %) |
-| Quality & Security gates (20 %) | `sonar-project.properties`, `scripts/sonar-setup.sh`, `k8s/gatekeeper/`, captures 02, 11, 12 |
-| Pipeline CI/CD & GitOps (20 %) | `.github/workflows/ci.yml`, `helm/`, `argocd/`, captures 05, 06, 13 |
-| Observabilité (20 %) | `app/telemetry.py`, `k8s/observability/`, captures 16 à 21 |
-| Ingénierie SRE & charge (25 %) | `slo-rules.yaml`, `loadtest/k6/catalog.js`, `dashboard-sre.yaml`, `RAPPORT-SRE.md`, captures 22 à 31 |
-
-
