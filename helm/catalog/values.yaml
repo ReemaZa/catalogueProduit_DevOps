@@ -2,7 +2,7 @@
 # Ne JAMAIS mettre "latest" : Gatekeeper rejetterait le déploiement.
 image:
   repository: ghcr.io/reemaza/catalogue-produit
-  tag: "980aa0e"
+  tag: "84b5d7d"
   pullPolicy: IfNotPresent
 
 replicaCount: 1
