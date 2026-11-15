@@ -86,7 +86,12 @@ alertmanager:
             text: "{{ .CommonAnnotations.summary }}"
 
 grafana:
-  adminPassword: admin
+  # Le mot de passe n'est PAS dans le dépôt : scripts/install-observability.sh crée le secret
+  # "grafana-admin" à partir de la variable d'environnement GRAFANA_ADMIN_PASSWORD.
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
   service:
     type: NodePort
     nodePort: 30090        # kind-config.yaml : 30090 -> http://localhost:9090

@@ -18,8 +18,10 @@ jobs:
     name: Lint & Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
           cache: pip
@@ -29,35 +31,10 @@ jobs:
       - name: Tests + couverture (échoue si < 85 %)
         run: pytest
 
-  # 2) SonarQube + Quality Gate (runner AUTO-HÉBERGÉ : voit le SonarQube local) --
-  quality:
-    name: SonarQube & Quality Gate
-    needs: test
-    runs-on: self-hosted
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0     # historique complet : nécessaire pour calculer le "nouveau code"
-      - name: Tests pour produire coverage.xml
-        run: |
-          python3 -m venv .venv
-          . .venv/bin/activate
-          pip install -q -r requirements-dev.txt
-          pytest
-      - name: SonarQube scan (attend la Quality Gate)
-        uses: SonarSource/sonarqube-scan-action@v7
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}   # ex. http://localhost:9000
-        with:
-          args: >
-            -Dsonar.qualitygate.wait=true
-            -Dsonar.qualitygate.timeout=300
-
-  # 3) Build + Trivy + Push (cloud GitHub) -----------------------------------
+  # 2) Build + Trivy + Push (cloud GitHub) -----------------------------------
   build:
     name: Build, Trivy & Push
-    needs: [test, quality]
+    needs: [test]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -65,7 +42,9 @@ jobs:
     outputs:
       tag: ${{ steps.meta.outputs.tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
       - name: Calcul du nom d'image (GHCR exige des minuscules)
         id: meta
         run: |
@@ -77,17 +56,20 @@ jobs:
       - name: Trivy (CRITICAL = échec du pipeline)
         run: |
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
-            ghcr.io/aquasecurity/trivy:latest image \
+            ghcr.io/aquasecurity/trivy:0.76.2 image \
             --severity CRITICAL --exit-code 1 --ignore-unfixed \
             "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}"
       - name: Login GHCR
-        if: github.ref == 'refs/heads/main'
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_ACTOR: ${{ github.actor }}
+        run: echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_ACTOR" --password-stdin
       - name: Push
-        if: github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: docker push "${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}"
 
-  # 4) GitOps : la CI écrit le nouveau tag dans Git, ArgoCD déploie ------------
+  # 3) GitOps : la CI écrit le nouveau tag dans Git, ArgoCD déploie ------------
   update-manifest:
     name: Mise à jour du tag dans Git (GitOps)
     needs: build
@@ -96,7 +78,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - name: Met à jour values.yaml
         run: |
           OWNER="${GITHUB_REPOSITORY_OWNER,,}"

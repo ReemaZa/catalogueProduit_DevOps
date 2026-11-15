@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
 # Installe la stack d'observabilité dans le namespace "monitoring" (Kind doit tourner).
-# Usage : bash scripts/install-observability.sh
+# Usage : GRAFANA_ADMIN_PASSWORD='<mot de passe long>' bash scripts/install-observability.sh
 set -euo pipefail
+: "${GRAFANA_ADMIN_PASSWORD:?définis GRAFANA_ADMIN_PASSWORD (ne jamais le commiter)}"
 cd "$(dirname "$0")/.."
 D=k8s/observability
 
 kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+
+# Secret Grafana créé localement, jamais stocké dans Git
+kubectl -n monitoring create secret generic grafana-admin \
+  --from-literal=admin-user=admin \
+  --from-literal=admin-password="$GRAFANA_ADMIN_PASSWORD" \
+  --dry-run=client -o yaml | kubectl apply -f -
 
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts >/dev/null
 helm repo add grafana https://grafana.github.io/helm-charts >/dev/null
@@ -27,5 +34,5 @@ echo "==> 4/4 Alloy (collecte des logs -> Loki)"
 helm upgrade --install alloy grafana/alloy -n monitoring -f $D/alloy-values.yaml --wait --timeout 5m
 
 echo
-echo "OK. Grafana : http://localhost:9090  (admin / admin)"
+echo "OK. Grafana : http://localhost:9090  (utilisateur : admin, mot de passe : GRAFANA_ADMIN_PASSWORD)"
 kubectl get pods -n monitoring

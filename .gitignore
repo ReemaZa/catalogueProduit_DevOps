@@ -1,7 +1,6 @@
 __pycache__/
 *.pyc
 .venv/
-.env
 .pytest_cache/
 .coverage
 coverage.xml
@@ -9,4 +8,20 @@ htmlcov/
 .ruff_cache/
 docs/
 
+# Secrets / identifiants : ne JAMAIS commiter
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+kubeconfig
+*.kubeconfig
+.kube/
+id_rsa*
+.scannerwork/
+
+# Runner GitHub auto-hébergé (ne doit plus exister)
 actions-runner/
+_work/

@@ -6,7 +6,7 @@
 ## 1. Architecture
 ![Architecture globale](rapport/architecture.png)
 
-Push GitHub → CI (lint + tests ≥ 85 % → SonarQube → build Docker → Trivy → push GHCR) → la CI écrit le tag dans `helm/catalog/values.yaml` → ArgoCD déploie sur Kind, sous contrôle de Gatekeeper. L'API est observée par Prometheus, Loki, Tempo et Grafana.
+Push GitHub → CI (lint + tests ≥ 85 % → build Docker → Trivy → push GHCR ; SonarQube exécuté en local) → la CI écrit le tag dans `helm/catalog/values.yaml` → ArgoCD déploie sur Kind, sous contrôle de Gatekeeper. L'API est observée par Prometheus, Loki, Tempo et Grafana.
 
 ## 2. Quality & security gates
 - **Tests** : 43 tests pytest, couverture **93,93 %** (seuil 85 %), rapport Cobertura `coverage.xml`.
@@ -17,7 +17,7 @@ Push GitHub → CI (lint + tests ≥ 85 % → SonarQube → build Docker → Tri
 - **Gatekeeper** : un commit avec `tag: latest` a été poussé ; ArgoCD a tenté la synchronisation et l'API Server l'a **rejetée** (`admission webhook "validation.gatekeeper.sh" denied the request: [interdire-latest]…`) (captures 11-12). L'ancienne version a continué de tourner.
   ![Rejet Gatekeeper : tag latest interdit](rapport/screenshots/12_gatekeeper-reject-latest02.png)
 - **CI/CD** : pipeline complète verte en 4 min 12 s (capture 06), déploiement ArgoCD Synced/Healthy (capture 13).
-  ![CI verte : les 4 jobs](rapport/screenshots/06_job_ci_passed.png)
+  ![CI verte (capture historique : 4 jobs, dont SonarQube alors en self-hosted, retiré depuis pour la publication du dépôt)](rapport/screenshots/06_job_ci_passed.png)
 
 ## 3. Observabilité
 Prometheus scrape le pod annoté : cible `catalog-api` **UP** (capture 16). La corrélation par `trace_id` fonctionne dans les deux sens : du log à la trace `7414979af962a5f41a06881c3d180b93` (capture 18), puis de la trace au log, où Loki retrouve exactement 1 ligne (capture 20).

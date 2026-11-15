@@ -21,7 +21,7 @@ TP2 de **DevOps avancé** : une API REST de catalogue de produits (FastAPI + Mon
 ## 1. Ce que fait le projet
 - Une **API de catalogue** (CRUD produits, filtres, statistiques) avec des endpoints techniques exigés par le sujet : `/metrics` (format Prometheus), `/checkout` (lent) et `/flaky` (erreurs intermittentes).
 - Des **tests automatiques** .
-- Une **CI GitHub Actions** : Lint + tests → SonarQube + Quality Gate → build Docker → scan Trivy (CRITICAL = échec) → push GHCR → mise à jour automatique du tag dans Git.
+- Une **CI GitHub Actions** : Lint + tests → build Docker → scan Trivy (CRITICAL = échec) → push GHCR → mise à jour automatique du tag dans Git.
 - Un **déploiement continu GitOps** avec ArgoCD (Helm), protégé par **OPA Gatekeeper** (refuse `:latest`, exige `requests/limits`, exige le label `owner`).
 - Une **plateforme d'observabilité** avec corrélation logs ↔ traces par `trace_id`.
 - Une **démarche SRE** : SLO de disponibilité 99,5 % et de latence p95 ≤ 200 ms, jauge d'error budget, alertes multi-window multi-burn-rate (14,4 et 6), test de charge k6 à 3 scénarios.
@@ -32,7 +32,7 @@ TP2 de **DevOps avancé** : une API REST de catalogue de produits (FastAPI + Mon
 | Microservice & tests | Python 3.12, FastAPI, MongoDB 7 (`motor`), pytest, pytest-cov, mongomock-motor, ruff |
 | Qualité & sécurité | SonarQube Community (Docker), Trivy |
 | Policy enforcement | OPA Gatekeeper (ConstraintTemplates en Rego) |
-| Orchestration & CI/CD | Kubernetes (Kind), GitHub Actions (runner auto-hébergé), Helm, ArgoCD, GHCR |
+| Orchestration & CI/CD | Kubernetes (Kind), GitHub Actions (runners GitHub-hosted uniquement), Helm, ArgoCD, GHCR |
 | Observabilité | OpenTelemetry, Prometheus, Alertmanager, Grafana, Loki, Tempo, Grafana Alloy |
 | SRE & charge | k6, règles Prometheus (recording + alerting) |
 
@@ -128,28 +128,29 @@ L'API est alors disponible sur http://localhost:8080 (NodePort 30080 mappé par 
 
 **d) Observabilité puis test de charge**
 ```bash
-bash scripts/install-observability.sh           # Loki, Tempo, Prometheus, Grafana, Alertmanager, Alloy
+GRAFANA_ADMIN_PASSWORD='<mdp long>' bash scripts/install-observability.sh   # Loki, Tempo, Prometheus, Grafana, Alertmanager, Alloy
 kubectl apply -f k8s/observability/slo-rules.yaml -f k8s/observability/dashboard-sre.yaml
 ulimit -n 65535
 k6 run loadtest/k6/catalog.js                              # trafic de référence (1 % de /flaky)
 k6 run -e FLAKY_SHARE=0.4 loadtest/k6/catalog.js           # incident simulé (40 % de /flaky)
 ```
-Grafana : http://localhost:9090 (admin / admin). Prometheus : `kubectl -n monitoring port-forward svc/kube-prometheus-stack-prometheus 9091:9090`. Alertmanager : `kubectl -n monitoring port-forward svc/kube-prometheus-stack-alertmanager 9093:9093`.
+Grafana : http://localhost:9090 (utilisateur `admin`, mot de passe = `GRAFANA_ADMIN_PASSWORD` fourni à l'installation). Prometheus : `kubectl -n monitoring port-forward svc/kube-prometheus-stack-prometheus 9091:9090`. Alertmanager : `kubectl -n monitoring port-forward svc/kube-prometheus-stack-alertmanager 9093:9093`.
 
 ## 6. Pipeline CI/CD et GitOps
 `.github/workflows/ci.yml`, déclenché à chaque `push` :
 
 1. **Lint & Test** : `ruff`, puis `pytest` (échec sous 85 % de couverture).
-2. **SonarQube & Quality Gate** : analyse sur un *runner auto-hébergé* (SonarQube est local), pipeline bloquée si la gate échoue.
-3. **Build, Trivy & Push** : image Docker taguée avec le SHA court du commit, scan Trivy (**CRITICAL = échec**), push sur GHCR.
-4. **Mise à jour du tag (GitOps)** : la CI écrit le tag dans `helm/catalog/values.yaml` (commit `[skip ci]`) ; **ArgoCD** détecte le changement et synchronise le cluster.
+2. **Build, Trivy & Push** : image Docker taguée avec le SHA court du commit, scan Trivy (**CRITICAL = échec**), push sur GHCR.
+3. **Mise à jour du tag (GitOps)** : la CI écrit le tag dans `helm/catalog/values.yaml` (commit `[skip ci]`) ; **ArgoCD** détecte le changement et synchronise le cluster.
 
-Les secrets (`SONAR_TOKEN`, `SONAR_HOST_URL`) sont dans **GitHub Secrets** ; le push d'image utilise le `GITHUB_TOKEN` avec les permissions minimales.
+**Analyse SonarQube** : elle se lance **en local** (SonarQube tourne sur `localhost`), à la main : `sonar-scanner` avec un token personnel, jamais commité. Elle n'est volontairement plus dans la CI : un runner auto-hébergé sur un dépôt public permettrait à un tiers d'exécuter du code sur la machine de l'auteur. Les captures `rapport/screenshots/01`, `02` et `34` documentent les résultats obtenus lorsque la gate était dans la CI.
 
-![CI : les 4 jobs en vert](rapport/screenshots/06_job_ci_passed.png)
+Aucun secret applicatif n'est nécessaire à la CI : le push d'image utilise le `GITHUB_TOKEN` avec les permissions minimales, les actions sont épinglées par SHA et Dependabot les tient à jour.
+
+![CI : pipeline verte (capture historique, avec le job SonarQube alors exécuté en local)](rapport/screenshots/06_job_ci_passed.png)
 
 ## 7. Barrières de qualité et de sécurité
-- **SonarQube** : la pipeline est bloquée si la couverture du nouveau code est insuffisante, si un *Security Hotspot* n'est pas revu ou si la duplication dépasse 3 % (`scripts/sonar-setup.sh`).
+- **SonarQube** (analyse locale, voir §6) : l'analyse échoue si la couverture du nouveau code est insuffisante, si un *Security Hotspot* n'est pas revu ou si la duplication dépasse 3 % (`scripts/sonar-setup.sh`).
 - **Trivy** : toute vulnérabilité CRITICAL fait échouer la pipeline.
 - **OPA Gatekeeper** (Rego, rejet à l'API Server) : `K8sNoLatestTag` (interdit `:latest` et l'absence de tag), `K8sRequireResources` (`requests` et `limits` CPU/mémoire obligatoires), `K8sRequiredLabels` (label `owner` obligatoire).
 
